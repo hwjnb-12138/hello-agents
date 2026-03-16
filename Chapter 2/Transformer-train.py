@@ -169,7 +169,6 @@ def calculate_loss():
 optimizer = torch.optim.AdamW(model.parameters(), lr = learning_rate)
 tracked_losses = list()
 for iter in range(max_iters):
-    # Fix #5: 使用 eval_interval 控制评估频率，eval_iters 仅用于评估时的采样次数
     if iter % eval_interval == 0 or iter == max_iters - 1:
         losses = calculate_loss()
         tracked_losses.append(losses)
