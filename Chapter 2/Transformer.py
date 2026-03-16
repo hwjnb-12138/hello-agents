@@ -3,8 +3,9 @@ import math
 import requests
 import tiktoken
 import torch
+import torch.nn as nn
 
-context_length = 14
+context_length = 16
 d_model = 64
 batch_size = 4
 head_num = 4
