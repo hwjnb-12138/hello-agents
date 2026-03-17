@@ -18,12 +18,12 @@ eval_interval = 50
 eval_iters = 20
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
-if not os.path.exists("Chapter 2/sales_textbook.txt"):
+if not os.path.exists("Chapter 3/sales_textbook.txt"):
     url = "https://huggingface.co/datasets/goendalf666/sales-textbook_for_convincing_and_selling/resolve/main/sales_textbook.txt?download=true"
-    with open("Chapter 2/sales_textbook.txt", "wb") as f:
+    with open("Chapter 3/sales_textbook.txt", "wb") as f:
         f.write(requests.get(url).content)
     
-with open("Chapter 2/sales_textbook.txt", "r") as f:
+with open("Chapter 3/sales_textbook.txt", "r") as f:
     text = f.read()
 
 encoding = tiktoken.get_encoding("cl100k_base")
@@ -180,7 +180,7 @@ for iter in range(max_iters):
     loss.backward()
     optimizer.step()
 
-torch.save(model.state_dict(), "model.pth")
+torch.save(model.state_dict(), "Chapter 3/model.pth")
 
 model.eval()
 start = 'The salesperson'
