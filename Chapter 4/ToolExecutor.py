@@ -17,8 +17,9 @@ class ToolExecutor:
         print(f"工具'{name}'注册成功")
       
     def getTool(self, name: str) -> callable:
-        # 获取一个工具的执行函数
-        return self.tools.get(name).get("func")
+        # 获取一个工具的执行函数，若工具不存在则返回 None
+        tool = self.tools.get(name)
+        return tool.get("func") if tool else None
 
     def getAvaliableTools(self):
         # 获取所有可用工具的格式化描述字符串

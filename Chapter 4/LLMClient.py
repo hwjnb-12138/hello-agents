@@ -13,7 +13,7 @@ class LLMClient:
 
         system_prompt = prompt if prompt else "You are a helpful asistant."
         if context:
-            systemContent += f"\nContext: {context}" 
+            system_prompt += f"\nContext: {context}"
         
         self.messages.append({"role": "system", "content": system_prompt})
     
