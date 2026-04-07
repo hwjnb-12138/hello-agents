@@ -58,7 +58,7 @@ class GameRoles:
         return cls.CHARACTER_TRAITS.get(character, "性格温和，说话得体")
     
     @classmethod
-    def get_role_description(cls, role: str) -> str:
+    def get_role_desc(cls, role: str) -> str:
         """获取角色描述"""
         return cls.Roles.get(role, {}).get("description", "未知角色")
     
