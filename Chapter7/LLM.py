@@ -43,7 +43,8 @@ class LLM:
             self.client = OpenAI(api_key=self.api_key, base_url=self.base_url, timeout=self.timeout)
 
 
-    def think(self, messages: List[Dict[str, str]], temperature: float = 0.7):
+    def stream_invoke(self, messages: List[Dict[str, str]], temperature: float = 0.7):
+        """流式调用大语言模型"""
         print(f"==========正在调用大语言模型 {self.model}......==========")
         try:
             response = self.client.chat.completions.create(
@@ -53,13 +54,25 @@ class LLM:
                 stream = True
             )
 
-            answer = []
             for chunk in response:
                 content = chunk.choices[0].delta.content
                 print(content, end = "", flush = True)
-                answer.append(content)
+                yield content
             print("\n==========大模型调用结束==========")
-            return "".join(answer)
+        except Exception as e:
+            print(f"调用大模型时发生错误：{e}")
+            return ""
+        
+    def invoke(self, messages: List[Dict[str, str]], **kwargs):
+        """非流式调用大语言模型"""
+        print(f"==========正在调用大语言模型 {self.model}......==========")
+        try:
+            response = self.client.chat.completions.create(
+                model = self.model,
+                messages = messages,
+                **kwargs
+            )
+            return response.choices[0].message.content
         except Exception as e:
             print(f"调用大模型时发生错误：{e}")
             return ""
@@ -71,4 +84,5 @@ if __name__ == "__main__":
         baseUrl = "http://localhost:11434/v1",
         provider = "ollama"
     )
-    print(llm.think([{"role": "user", "content": "你好"}]))
+    for chunk in llm.stream_invoke([{"role": "user", "content": "请推荐三个上海旅游景点"}]):
+        pass
