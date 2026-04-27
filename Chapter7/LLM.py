@@ -35,7 +35,7 @@ class LLM:
             self.client = OpenAI(api_key=self.api_key, base_url=self.base_url, timeout=self.timeout)
         else:
             # 默认使用 DeepSeek 模型
-            self.model = model or "deepseek-chat"
+            self.model = model or "deepseek-v4-pro"
             self.api_key = apiKey or os.getenv("DS_API_KEY")
             self.base_url = baseUrl or os.getenv("DS_BASE_URL")
             self.timeout = kwargs.get('timeout', 60)

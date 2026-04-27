@@ -106,4 +106,3 @@ class ToolRegistry:
         """获取函数"""
         function_info = self._functions.get(name)
         return function_info["function"] if function_info else None
-

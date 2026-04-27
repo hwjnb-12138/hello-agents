@@ -1,10 +1,10 @@
 from typing import Optional, Dict, Literal, Any
 from datetime import datetime
-from pydantic import BsaeModel
+from pydantic import BaseModel
 
 MessageRole = Literal["user", "assistant", "system", "tool"]
 
-class Message(BsaeModel):
+class Message(BaseModel):
     role: MessageRole
     content: str
     timestamp: datetime = None

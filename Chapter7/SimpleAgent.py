@@ -16,15 +16,14 @@ class SimpleAgent(Agent):
             config: Optional[Config] = None,
             tool_registry: Optional['ToolRegistry'] = None,
             enable_tool_calling: bool = True
-    ):
-        super().__init__(name, llm, system_prompt, config)
-        self.tool_registry = tool_registry
+        ):
+        super().__init__(name, llm, system_prompt, config, tool_registry)
         self.enable_tool_calling = enable_tool_calling and tool_registry is not None
         print(f"{name} 初始化完成，工具调用：{'启用' if enable_tool_calling else '禁用'}")
 
     def stream_run(self, user_input: str, **kwargs) -> Iterator[str]:
         """流式运行"""
-        print(f"{self.name}开始流式处理{user_input}")
+        print(f"{self.name} 开始流式处理 {user_input}")
 
         messages = []
         if self.system_prompt:
@@ -46,7 +45,7 @@ class SimpleAgent(Agent):
 
 
     def run(self, user_input: str, max_iterations: int = 3, **kwargs) -> str:
-        print(f"{self.name}开始处理{user_input}")
+        print(f"{self.name} 开始处理 {user_input}")
 
         messages = []
         new_prompt = self._update_system_prompt()
@@ -83,8 +82,9 @@ class SimpleAgent(Agent):
             tool_results = []
             for tool in tool_calls:
                 print(f"[工具调用]: {tool['name']} -> {tool['parameters']}")
-                result = self._execute_tool(tool["name"], tool["parameters"])
-                tool_results.append(result)
+                parameters = self._parse_tool_parameters(tool["name"], tool["parameters"])
+                result = self._execute_tool(tool["name"], parameters)
+                tool_results.append(f"工具{tool['name']}执行结果：{result}")
                 print(f"[工具结果]: {result}")
             
             tool_results_text = "\n".join(tool_results)
@@ -100,24 +100,6 @@ class SimpleAgent(Agent):
         print(f"\n{self.name} 处理完成，结果：{final_response}")
 
         return final_response
-
-
-    def _execute_tool(self, tool_name: str, tool_parameters: str):
-        """执行工具调用"""
-        if not self.tool_registry:
-            return "未配置工具注册表，无法调用工具"
-        
-        try:
-            tool = self.tool_registry.get_tool(tool_name)
-            if not tool:
-                return f"工具{tool_name}不存在注册表中"
-            
-            parameters = self._parse_tool_parameters(tool_name, tool_parameters)
-            result = tool.run(parameters)
-
-            return f"工具{tool_name}执行结果：{result}"
-        except Exception as e:
-            return f"工具{tool_name}执行失败：{str(e)}"
     
     def _parse_tool_call(self, text: str) -> list:
         """解析需要调用的工具"""
