@@ -88,6 +88,21 @@ class ToolRegistry:
         }
         print(f"Function: {name} registered")
 
+    def unregister_tool(self, name: str):
+        """注销工具"""
+        if name in self._tools:
+            del self._tools[name]
+            print(f"Tool: {name} unregistered")
+        elif name in self._functions:
+            del self._functions[name]
+            print(f"Function: {name} unregistered")
+        else:
+            print(f"Tool or function with name {name} not found")  
+
+    def list_tools(self):
+        """列出所有工具"""
+        return list(self._tools.keys()) + list(self._functions.keys())
+
     def get_tools_descriptions(self) -> str:
         """获取所有工具的描述"""
         descriptions = []

@@ -3,7 +3,7 @@ from typing import Optional, List
 from LLM import LLM
 from Message import Message
 from Config import Config
-from Tool import ToolRegistry
+from Tool import ToolRegistry, Tool
 from typing import Dict, Any
 
 
@@ -36,6 +36,27 @@ class Agent(ABC):
     
     def clear_history(self):
         self.history.clear()
+
+    def list_tools(self):
+        if self.tool_registry:
+            return self.tool_registry.list_tools()
+        return []
+
+    def add_tool(self, name: str, description: str,tool: Optional[Tool] = None, func: Optional[callable] = None):
+        if not self.tool_registry:
+            self.tool_registry = ToolRegistry()
+
+        if tool:
+            self.tool_registry.register_tool(tool)
+
+        if func:
+            self.tool_registry.register_function(name, description, func)
+
+    def remove_tool(self, tool_name: str) -> bool:
+        if self.tool_registry:
+            self.tool_registry.unregister_tool(tool_name)
+            return True
+        return False
 
     def _execute_tool(self, tool_name: str, arguments: Dict[str, Any]) -> str:
         """执行工具"""

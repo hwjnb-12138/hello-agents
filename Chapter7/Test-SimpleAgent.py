@@ -6,7 +6,7 @@ from Calculator import my_calculate
 llm = LLM()
 tool_registry = ToolRegistry()
 tool_registry.register_function(
-    name="my_calculator",
+    name="calculator",
     description="简单的数学计算工具，支持基本运算(+,-,*,/)和sqrt函数",
     function=my_calculate
 )
@@ -30,3 +30,7 @@ response3 = dial_agent.stream_run("hello!")
 for chunk in response3:
     pass  # 生成器已经在内部打印了内容
 print()
+
+print("列出所有工具：", dial_agent.list_tools())
+dial_agent.add_tool(name="calculator", description="简单的数学计算工具，支持基本运算(+,-,*,/)和sqrt函数", func = my_calculate)
+print("列出所有工具：", dial_agent.list_tools())
