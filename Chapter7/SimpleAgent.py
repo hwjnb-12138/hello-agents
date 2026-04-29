@@ -19,7 +19,7 @@ class SimpleAgent(Agent):
         ):
         super().__init__(name, llm, system_prompt, config, tool_registry)
         self.enable_tool_calling = enable_tool_calling and tool_registry is not None
-        print(f"{name} 初始化完成，工具调用：{'启用' if enable_tool_calling else '禁用'}")
+        print(f"{name} 初始化完成，工具调用：{'启用' if self.enable_tool_calling else '禁用'}")
 
     def stream_run(self, user_input: str, **kwargs) -> Iterator[str]:
         """流式运行"""
@@ -34,6 +34,8 @@ class SimpleAgent(Agent):
 
         final_response = ""
         for chunk in self.llm.stream_invoke(messages, **kwargs):
+            if chunk is None:
+                continue
             final_response += chunk
             print(chunk, end="", flush = True)
             yield chunk
@@ -59,6 +61,7 @@ class SimpleAgent(Agent):
             response = self.llm.invoke(messages, **kwargs)
             self.add_message(Message("user", user_input))
             self.add_message(Message("assistant", response))
+            print(f"{self.name} 处理完成")
             return response
 
         return self._run_tool_calling(messages, user_input, max_iterations, **kwargs)

@@ -56,8 +56,8 @@ class LLM:
 
             for chunk in response:
                 content = chunk.choices[0].delta.content
-                print(content, end = "", flush = True)
-                yield content
+                if content is not None:
+                    yield content
             print("\n==========大模型调用结束==========")
         except Exception as e:
             print(f"调用大模型时发生错误：{e}")
