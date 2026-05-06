@@ -121,3 +121,11 @@ class ToolRegistry:
         """获取函数"""
         function_info = self._functions.get(name)
         return function_info["function"] if function_info else None
+    
+    def return_tools(self) -> Dict[str, Tool]:
+        """返回所有工具"""
+        return self._tools
+    
+    def return_functions(self) -> Dict[str, Dict[str, Any]]:
+        """返回所有函数"""
+        return self._functions

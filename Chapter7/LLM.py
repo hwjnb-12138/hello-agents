@@ -76,6 +76,10 @@ class LLM:
         except Exception as e:
             print(f"调用大模型时发生错误：{e}")
             return ""
+        
+    def invoke_with_tools(self, messages: List[Dict], tools: List[Dict], **kwargs):
+        """工具调用(Function Calling)"""
+        
 
 if __name__ == "__main__":
     llm = LLM(

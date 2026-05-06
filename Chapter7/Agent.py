@@ -42,7 +42,7 @@ class Agent(ABC):
             return self.tool_registry.list_tools()
         return []
 
-    def add_tool(self, name: str, description: str,tool: Optional[Tool] = None, func: Optional[callable] = None):
+    def add_tool(self, name: str, description: str, tool: Optional[Tool] = None, func: Optional[callable] = None):
         if not self.tool_registry:
             self.tool_registry = ToolRegistry()
 
@@ -81,6 +81,37 @@ class Agent(ABC):
                 return f"调用函数 {tool_name} 失败：{e}"
         
         return f"未找到工具或函数 {tool_name}"
+    
+    def _build_tool_schemas(self) -> List[Dict[str, Any]]:
+        """构建工具调用的Schema"""
+        if not self.tool_registry:
+            return []
+        
+        schemas: List[Dict[str, Any]] = []
+        for tool in self.tool_registry.return_tools().values():
+            schemas.append(tool.to_openai_schema())
+        
+        functions = self.tool_registry.return_functions()
+        for name, info in functions.items():
+            schemas.append({
+                "type": "function",
+                "function": {
+                    "name": name,
+                    "description": info.get("description", ""),
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "input": {
+                                "type": "string",
+                                "description": "请输入文本"
+                            }
+                        },
+                        "required": ["input"]
+                    }
+                }
+            })
+        
+        return schemas
 
     def __str__(self) -> str:
         return f"Agent(name: {self.name}, provider: {self.llm.provider})"
