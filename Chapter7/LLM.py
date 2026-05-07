@@ -5,6 +5,11 @@ from typing import Optional, List, Dict
 
 dotenv.load_dotenv()
 
+class ToolResponse:
+    content: str
+    reasoning_content: str
+    tool_calls: List
+
 class LLM:
     def __init__(
             self, 
@@ -77,8 +82,34 @@ class LLM:
             print(f"调用大模型时发生错误：{e}")
             return ""
         
-    def invoke_with_tools(self, messages: List[Dict], tools: List[Dict], **kwargs):
+    def invoke_with_tools(self, messages: List[Dict], tools: List[Dict], **kwargs) -> ToolResponse:
         """工具调用(Function Calling)"""
+        try:
+            response = self.client.chat.completions.create(
+                model = self.model,
+                messages = messages,
+                tools = tools,
+                **kwargs
+            )
+            message = response.choices[0].message
+
+            tool_calls = []
+            if message.tool_calls:
+                for call in message.tool_calls:
+                    tool_calls.append({
+                        "id": call.id,
+                        "name": call.function.name,
+                        "arguments": call.function.arguments
+                    })
+            
+            return ToolResponse(
+                content = message.content,
+                reasoning_content = message.reasoning_content or "",
+                tool_calls = tool_calls
+            )
+        except Exception as e:
+            print(f"调用大模型时发生错误：{e}")
+            raise e
         
 
 if __name__ == "__main__":
