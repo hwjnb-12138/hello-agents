@@ -4,7 +4,7 @@ from pydantic import BaseModel
 
 class Config(BaseModel):
     # LLM配置
-    default_model: str = "deepseek-chat"
+    default_model: str = "deepseek-v4-pro"
     temperature: float = 0.7
     max_tokens: Optional[int] = None
     default_provider: str = "deepseek"
