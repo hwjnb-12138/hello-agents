@@ -87,7 +87,7 @@ class ReActAgent(Agent):
                         "type": "function",
                         "function": {
                             "name": tc["name"],
-                            "arguments": tc["parameters"]
+                            "arguments": tc["arguments"]
                         }
                     }
                     for tc in tool_calls
@@ -170,13 +170,14 @@ class ReActAgent(Agent):
                 "parameters": {
                     "type": "object",
                     "properties": {
-                        "result": {
+                        "answer": {
                             "type": "string",
                             "description": "最终结果"
                         }
                     },
-                    "required": ["result"]
+                    "required": ["answer"]
                 }
             }
         })
-        
+
+        return schemas

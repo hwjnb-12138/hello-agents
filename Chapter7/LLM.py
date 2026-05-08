@@ -2,13 +2,14 @@ import os
 import dotenv
 from openai import OpenAI
 from typing import Optional, List, Dict
+from pydantic import BaseModel
 
 dotenv.load_dotenv()
 
-class ToolResponse:
-    content: str
-    reasoning_content: str
-    tool_calls: List
+class ToolResponse(BaseModel):
+    content: Optional[str] = None
+    reasoning_content: Optional[str] = None
+    tool_calls: List[Dict] = []
 
 class LLM:
     def __init__(
@@ -84,6 +85,8 @@ class LLM:
         
     def invoke_with_tools(self, messages: List[Dict], tools: List[Dict], **kwargs) -> ToolResponse:
         """工具调用(Function Calling)"""
+        print(f"==========正在调用大语言模型 {self.model}......==========")
+        print(f"tools: {tools}")
         try:
             response = self.client.chat.completions.create(
                 model = self.model,
