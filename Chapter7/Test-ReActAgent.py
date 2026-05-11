@@ -3,8 +3,6 @@
 测试 ReActAgent 智能体功能的脚本
 """
 
-import os
-import dotenv
 from LLM import LLM
 from ReActAgent import ReActAgent
 from Calculator import my_calculate

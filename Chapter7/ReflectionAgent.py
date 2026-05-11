@@ -72,7 +72,7 @@ class Memory:
 
 
 class ReflectionAgent(Agent):
-    def __init_(
+    def __init__(
             self,
             name: str,
             llm: LLM,
@@ -104,7 +104,7 @@ class ReflectionAgent(Agent):
         self.memory.add_memory("execution", initial_result)
 
         for i in range(self.max_reflection_iterations):
-            print(f"第 {i+1} 轮反思")
+            print(f"第 {i+1} 轮反思-优化")
 
             print("正在进行反思...")
             reflection_prompt = REFLECT_PROMPT_TEMPLATE.format(task = user_input, result = self.memory.get_last_execution())
