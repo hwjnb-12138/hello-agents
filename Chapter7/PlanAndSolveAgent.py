@@ -1,7 +1,10 @@
 PLANNER_PROMPT_TEMPLATE = """
 你是一个顶级的AI规划专家。你的任务是将用户提出的复杂问题分解成一个由多个简单步骤组成的行动计划。
 请确保计划中的每个步骤都是一个独立的、可执行的子任务，并且严格按照逻辑顺序排列。
-你的输出必须是一个Python列表，其中每个元素都是一个描述子任务的字符串。
+你的输出必须是一个Python列表，其中每个元素都是一个描述子任务的字符串，仅输出该列表。
+
+输出示例：
+[子任务1，子任务2，子任务3]
 """
 
 EXECUTOR_PROMPT_TEMPLATE = """
@@ -29,7 +32,7 @@ from LLM import LLM
 from Agent import Agent
 from Config import Config
 from Message import Message
-from Tool import TooLRegistry
+from Tool import ToolRegistry
 from typing import Optional, List, Dict, Any
 
 class Planner:
@@ -67,16 +70,16 @@ class PlanAndSolveAgent(Agent):
             system_prompt: Optional[str] = None,
             config: Optional[Config] = None,
             executor_prompt: Optional[str] = None,
-            tool_registry: Optional[TooLRegistry] = None,
+            tool_registry: Optional[ToolRegistry] = None,
             enable_tool_calling: bool = True,
             max_iterations: int = 3
         ):
         super().__init__(
             name,
             llm,
-            system_prompt,
-            config,
-            tool_registry
+            system_prompt = system_prompt or "You are a helpful assistant.",
+            config = config,
+            tool_registry = tool_registry
         )
         self.executor_prompt = executor_prompt or EXECUTOR_PROMPT_TEMPLATE
         self.enable_tool_calling = enable_tool_calling and self.tool_registry is not None
