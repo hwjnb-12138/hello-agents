@@ -6,7 +6,7 @@
 from LLM import LLM
 from ReActAgent import ReActAgent
 from Calculator import my_calculate
-
+from AdvancedSearch import AdvancedSearchTool
 
 def test_react_agent():
     print("=" * 60)
@@ -34,6 +34,11 @@ def test_react_agent():
         description="数学计算工具，支持基本运算(+,-,*,/)和sqrt函数",
         func=my_calculate
     )
+    agent.add_tool(
+        name="advanced_search",
+        description="智能搜索工具，支持多个搜索源，如Tavily、SerpApi等，自动整合搜索结果",
+        tool=AdvancedSearchTool()
+    )
     print("工具添加完成")
     
     # 4. 测试基本对话
@@ -43,11 +48,11 @@ def test_react_agent():
     response1 = agent.run("你好，介绍一下你自己")
     print(f"智能体回答：{response1}")
     
-    # 5. 测试工具调用 - 数学计算
+    # 5. 测试工具调用 - 智能搜索
     print("\n" + "-" * 60)
-    print("5. 测试工具调用 - 数学计算")
+    print("5. 测试工具调用 - 智能搜索")
     print("-" * 60)
-    response2 = agent.run("请计算 2 + 3 * 4")
+    response2 = agent.run("请搜索 Python 最新的版本和安装方法")
     print(f"智能体回答：{response2}")
     
     # 6. 测试多步骤推理
