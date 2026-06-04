@@ -97,14 +97,67 @@ class MemoryManager:
         logger.warning(f"未找到记忆ID为 {memory_id} 的记忆")
         return False
 
-    def remove_memory(self, memory_id: str,) -> bool:
+    def remove_memory(self, memory_id: str) -> bool:
         for memory_type, memory_instance in self.memory_types.items():
             if memory_instance.has_memory(memory_id):
                 return memory_instance.remove(memory_id)
         
         logger.warning(f"未找到记忆ID为 {memory_id} 的记忆")
         return False
+    
+    def clear_memories(self):
+        for memory_type, memory_instance in self.memory_types.items():
+                memory_instance.clear()
+        
+        logger.info(f"清除所有记忆")
 
+    def forget_memories(
+            self,
+            strategy: str = "importance_based",
+            threshold: float = 0.1,
+            max_days: int = 30
+    ):
+        """记忆遗忘机制
+        
+        Args:
+            strategy: 遗忘策略 ("importance_based", "time_based", "capacity_based")
+            threshold: 遗忘阈值
+            max_days: 最大保存天数
+            
+        Returns:
+            遗忘的记忆数量
+        """
+        sum = 0
+        for _, memory_instance in self.memory_types.items():
+            if hasattr(memory_instance, "forget"):
+                forget_num = memory_instance.forget(strategy, threshold, max_days)
+                sum += forget_num
+        
+        logger.info(f"遗忘 {sum} 条记忆")
+        return sum
+    
+    def get_memory_stats(self) -> Dict[str, Any]:
+        """获取记忆统计信息"""
+        stats = {
+            "user_id": self.user_id,
+            "enabled_types": list(self.memory_types.keys()),
+            "total_memories": 0,
+            "memories_by_type": {},
+            "config": {
+                "max_capacity": self.config.max_capacity,
+                "importance_threshold": self.config.importance_threshold,
+                "decay_factor": self.config.decay_factor
+            }
+        }
+
+        for memory_type, memory_instance in self.memory_types.items():
+            type_stats = memory_instance.get_stats()
+            stats["memories_by_type"][memory_type] = type_stats
+            # 使用count字段（活跃记忆数），而不是total_count（包含已遗忘的）
+            stats["total_memories"] += type_stats.get("count", 0)
+
+        return stats
+        
     def _calculate_importance(self, importance: float, content: str, metadata: Optional[Dict[str, Any]]):
         if len(content) > 100:
             importance += 0.1
@@ -121,3 +174,7 @@ class MemoryManager:
 
         
         return min(importance, 1.0)
+
+    def __str__(self) -> str;
+        stats = self.get_memory_stats()
+        return f"MemoryManager(user={self.user_id}, total={stats['total_memories']})"
