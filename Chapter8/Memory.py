@@ -44,11 +44,11 @@ class BaseMemory(ABC):
         content: str = None,
         importance: float = None,
         metadata: Dict[str, Any] = None
-    ):
+    ) -> bool:
         pass
 
     @abstractmethod
-    def remove(self, memory_id: str):
+    def remove(self, memory_id: str) -> bool:
         pass
 
     @abstractmethod
