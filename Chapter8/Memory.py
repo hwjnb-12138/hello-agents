@@ -15,7 +15,7 @@ class MemoryItem(BaseModel):
 class MemoryConfig(BaseModel):
 
     storage_path: str = "./memory_data"
-    max_capacity: int = 1000
+    max_capacity: int = 100
     importance_threshold: float = 0.5
     decay_factor: float = 0.95
 

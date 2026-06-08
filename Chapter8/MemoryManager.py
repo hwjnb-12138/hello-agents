@@ -175,6 +175,6 @@ class MemoryManager:
         
         return min(importance, 1.0)
 
-    def __str__(self) -> str;
+    def __str__(self) -> str:
         stats = self.get_memory_stats()
         return f"MemoryManager(user={self.user_id}, total={stats['total_memories']})"
