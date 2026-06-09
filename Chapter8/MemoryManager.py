@@ -116,7 +116,7 @@ class MemoryManager:
             strategy: str = "importance_based",
             threshold: float = 0.1,
             max_days: int = 30
-    ):
+    ) -> int:
         """记忆遗忘机制
         
         Args:
@@ -135,6 +135,32 @@ class MemoryManager:
         
         logger.info(f"遗忘 {sum} 条记忆")
         return sum
+    
+    def consolidate_memories(
+        self,
+        from_type: str = "working",
+        to_type: str = "semantic",
+        importance_threshold: float = 0.7
+    ) -> int:
+        """记忆整合，将重要的短期记忆转换为长期记忆"""
+        if from_type not in self.memory_types or to_type not in self.memory_types:
+            logger.warning(f"记忆类型不存在：{from_type} 或 {to_type}")
+            return 0
+        
+        source_memorie = self.memory_types[from_type]
+        target_memorie = self.memory_types[to_type]
+
+        candidates = [m for m in source_memorie.get_all() if m.importance >= importance_threshold]
+        count = 0
+        for memory in candidates:
+            if source_memorie.remove(memory.id):
+                memory.memory_type = to_type
+                memory.importance *= 1.1
+                target_memorie.add(memory)
+                count += 1
+        
+        logger.info(f"记忆整合完成: {count} 条记忆从 {from_type} 转移到 {to_type}")
+        return count
     
     def get_memory_stats(self) -> Dict[str, Any]:
         """获取记忆统计信息"""

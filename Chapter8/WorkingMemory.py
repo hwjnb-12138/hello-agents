@@ -3,11 +3,18 @@ from datetime import datetime, timedelta
 from typing import List
 from Memory import BaseMemory, MemoryConfig, MemoryItem
 
+try:
+    from sklearn.feature_extraction.text import TfidfVectorizer
+    from sklearn.metrics.pairwise import cosine_similarity
+    SKLEARN_AVAILABLE = True
+except ImportError:
+    SKLEARN_AVAILABLE = False
+
 class WorkingMemory(BaseMemory):
     def __init__(self, config: MemoryConfig, storage_backend=None):
         super().__init__(config, storage_backend)
         self.max_capacity = self.config.working_memory_capacity
-        self.tokens = self.config.working_memory_tokens
+        self.max_tokens = self.config.working_memory_tokens
         self.max_age_minutes = getattr(self.config, "working_memory_ttl_minutes", 120)
         self.current_tokens = 0
         self.session_start = datetime.now()
@@ -36,28 +43,19 @@ class WorkingMemory(BaseMemory):
             return []
         
         vector_scores = {}
-        try:
-            # 简单的语义相似度计算（使用TF-IDF或其他轻量级方法）
-            from sklearn.feature_extraction.text import TfidfVectorizer
-            from sklearn.metrics.pairwise import cosine_similarity
-            
-            # 准备文档
-            documents = [query] + [m.content for m in filtered_memories]
-            
-            # TF-IDF向量化
-            vectorizer = TfidfVectorizer(stop_words=None, lowercase=True)
-            tfidf_matrix = vectorizer.fit_transform(documents)
-            
-            # 计算相似度
-            query_vector = tfidf_matrix[0:1]
-            doc_vectors = tfidf_matrix[1:]
-            similarities = cosine_similarity(query_vector, doc_vectors).flatten()
-            
-            # 存储向量分数
-            for i, memory in enumerate(filtered_memories):
-                vector_scores[memory.id] = similarities[i]
-        except Exception as e:
-            vector_scores = {}
+        if SKLEARN_AVAILABLE:
+            try:
+                documents = [query] + [m.content for m in filtered_memories]
+                print(f"documents: {documents}")
+                vectorizer = TfidfVectorizer(stop_words=None, lowercase=True)
+                tfidf_matrix = vectorizer.fit_transform(documents)
+                query_vector = tfidf_matrix[0:1]
+                doc_vectors = tfidf_matrix[1:]
+                similarities = cosine_similarity(query_vector, doc_vectors).flatten()
+                for i, memory in enumerate(filtered_memories):
+                    vector_scores[memory.id] = similarities[i]
+            except Exception:
+                pass
 
         query_lower = query.lower()
         scored_memories = []
@@ -263,7 +261,7 @@ class WorkingMemory(BaseMemory):
         while len(self.memories) > self.max_capacity:
             self._remove_lowest_priority_memory()
         
-        while self.current_tokens > self.tokens:
+        while self.current_tokens > self.max_tokens:
             self._remove_lowest_priority_memory()
 
 
