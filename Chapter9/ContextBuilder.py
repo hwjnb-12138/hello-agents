@@ -11,14 +11,15 @@ from ..Chapter8.MemoryTool import MemoryTool
 @dataclass
 class ContextPacket:
     content: str
-    timestamp: datetime = field(default_factory=datetime.now)
-    metadata: Dict[str, Any] = field(default_factory=dict)
-    token: int = 0
+    timestamp: datetime
+    metadata: Optional[Dict[str, Any]] = None
+    token: int
     relevance: float = 0.0
 
     def __post_init__(self):
-        if self.token == 0:
-            self.token = count_tokens(self.content)
+        if self.metadata is None:
+            self.metadata = {}
+        self.relevance = max(0.0, min(1.0, self.relevance))
 
 
 @dataclass
@@ -26,8 +27,6 @@ class ContextConfig:
     max_tokens: int = 8000
     reserve_ratio: float = 0.15  # 生成余量（10-20%）
     min_relevance: float = 0.3  # 最小相关性阈值
-    enable_mmr: bool = True  # 启用最大边际相关性（多样性）
-    mmr_lambda: float = 0.7  # MMR平衡参数（0=纯多样性, 1=纯相关性）
     system_prompt_template: str = ""  # 系统提示模板
     enable_compression: bool = True  # 启用压缩
     
@@ -53,6 +52,11 @@ class ContextBuilder:
         additional_packet: Optional[List[ContextPacket]] = None
     ):
         packets = self._gather(query, conversation_history, system_instruction, additional_packet)
+        selected_packets = self._select(query, packets)
+        structured_context = self._structure(query, selected_packets)
+        compressed_context = self._compress(structured_context)
+
+        return compressed_context
         
     def _gather(
         self,
@@ -64,31 +68,38 @@ class ContextBuilder:
         packets = []
 
         if system_instruction:
-            packets.append(ContextPacket(content=system_instruction, metadata={"type": "system_instruction"}))
+            packets.append(ContextPacket(
+                content=system_instruction,
+                timestamp=datetime.now(),
+                token=count_tokens(system_instruction),
+                relevance=1.0,
+                metadata={"type": "system_instruction", "priority": "high"}
+            ))
 
         if self.memory_tool:
             try:
-                state_results = self.memory_tool._search_memories(
-                    query = "任务状态 OR 目标 OR 结论",
-                    limit = 5,
-                    threshold = 0.7
-                )
-                if state_results and "未找到" not in state_results:
-                    packets.append(ContextPacket(content=state_results, metadata={"type": "task_state", "importance": "high"}))
-
-                related_results = self.memory_tool._search_memories(
-                    query = query,
-                    limit = 5
-                )
+                related_results = self.memory_tool.run({
+                    "action": "search",
+                    "query": query,
+                    "limit": 5,
+                    "threshold": 0.5
+                })
                 if related_results and "未找到" not in related_results:
                     packets.append(ContextPacket(content=related_results, metadata={"type": "related_memory"}))
+
             except Exception as e:
                 print(f"记忆检索失败: {e}")
 
         if conversation_history:
             history = conversation_history[-5:]
-            text = "\n".join([f"{msg.role}: {msg.content}" for msg in history])
-            packets.append(ContextPacket(content=text, metadata={"type": "conversation_history"}))
+            for msg in history:
+                packets.append(ContextPacket(
+                    content=f"{msg.role}: {msg.content}",
+                    token=count_tokens(msg.content),
+                    relevance=0.6,
+                    timestamp=msg.timestamp if msg.timestamp else datetime.now(),
+                    metadata={"type": "conversation_history", "role": msg.role}
+                ))
 
         packets.extend(additional_packet)
 
