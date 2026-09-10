@@ -290,6 +290,7 @@ def create_example_agent() -> A2AServer:
     server.add_skill("calculate", calculator_skill)
 
     # 添加问候技能
+    @server.skill
     def greeting_skill(text: str) -> str:
         """生成问候语"""
         import re
@@ -297,8 +298,6 @@ def create_example_agent() -> A2AServer:
         if match:
             return "Hello! I'm an A2A agent. How can I help you today?"
         return "Hi there!"
-
-    server.add_skill("greet", greeting_skill)
 
     return server
 
@@ -314,6 +313,9 @@ if __name__ == "__main__":
         print(f"🛠️ Skills: {list(agent.skills.keys())}")
         print()
         agent.run(host="0.0.0.0", port=5000)
+        client = A2AClient("http://localhost:5000")
+        response = client.execute_skill("calculate", "calculate 2 + 3")
+        print(response)
     except ImportError as e:
         print(f"❌ {e}")
         print("💡 Install the A2A SDK: pip install a2a-sdk")
