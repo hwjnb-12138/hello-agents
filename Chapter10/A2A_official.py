@@ -22,6 +22,8 @@ import logging
 import re
 import sys
 import uuid
+from dataclasses import dataclass, field
+from typing import Any, Callable
 
 from google.protobuf import struct_pb2
 
@@ -39,12 +41,13 @@ from a2a.types.a2a_pb2 import (
     TaskStatus,
     TaskStatusUpdateEvent,
 )
-from a2a.server.agent_execution import AgentExecutor, RequestContext
-from a2a.server.events import EventQueue, InMemoryQueueManager
-from a2a.server.request_handlers import (
-    LegacyRequestHandler,
+from a2a.server.agent_execution import (
+    AgentExecutor,
+    RequestContext,
     SimpleRequestContextBuilder,
 )
+from a2a.server.events import EventQueue, InMemoryQueueManager
+from a2a.server.request_handlers import LegacyRequestHandler
 from a2a.server.tasks import InMemoryTaskStore
 from a2a.server.routes import create_agent_card_routes, create_jsonrpc_routes
 from a2a.server.routes.common import (
@@ -60,6 +63,212 @@ from a2a.utils.constants import AGENT_CARD_WELL_KNOWN_PATH
 
 
 # ============================================================================
+# Skill 注册中心 - 支持装饰器动态注册
+# ============================================================================
+
+
+@dataclass
+class SkillDefinition:
+    """Skills 的定义信息，用于生成 AgentCard 中的 AgentSkill。"""
+    id: str
+    name: str
+    description: str = ""
+    tags: list[str] = field(default_factory=list)
+    examples: list[str] = field(default_factory=list)
+    input_modes: list[str] = field(default_factory=lambda: ["text", "text/plain"])
+    output_modes: list[str] = field(default_factory=lambda: ["text", "text/plain"])
+
+
+class SkillRegistry:
+    """Skill 注册中心，支持装饰器和普通方法两种方式注册 skill。
+
+    装饰器用法::
+
+        registry = SkillRegistry()
+
+        @registry.skill("calculate", description="计算数学表达式", keywords=["calc", "计算"])
+        def calculate(text, context_id, task_id):
+            return "计算结果: 42"
+
+        @registry.skill  # 自动使用函数名作为 skill_id
+        def greet(text, context_id, task_id):
+            return "Hello!"
+
+    普通方法用法::
+
+        registry.register("translate", translate_func,
+                           description="翻译功能", keywords=["translate", "翻译"])
+    """
+
+    def __init__(self):
+        self._skills: dict[str, tuple[SkillDefinition, Callable]] = {}
+        self._keywords: dict[str, list[str]] = {}
+
+    # ======== 装饰器入口 ========
+    def skill(
+        self,
+        skill_id_or_func: str | Callable,
+        *,
+        name: str | None = None,
+        description: str = "",
+        tags: list[str] | None = None,
+        examples: list[str] | None = None,
+        keywords: list[str] | None = None,
+    ):
+        """装饰器：将函数注册为一个 skill。
+
+        支持两种用法::
+
+            # 用法1: 带参数的装饰器
+            @registry.skill("greet", description="生成问候语", keywords=["hello", "hi"])
+            def greet(text, ctx_id, task_id):
+                return "Hello!"
+
+            # 用法2: 不带参数的装饰器（以函数名作为 skill_id）
+            @registry.skill
+            def calculate(text, ctx_id, task_id):
+                return "结果"
+
+        Args:
+            skill_id_or_func: skill ID 字符串，或直接传入函数（不带括号调用时）
+            name: skill 显示名称，默认与 skill_id 相同
+            description: skill 描述
+            tags: 标签列表
+            examples: 示例列表
+            keywords: 触发关键词列表
+        """
+        if callable(skill_id_or_func):
+            func = skill_id_or_func
+            return self._register(
+                func=func,
+                skill_id=func.__name__,
+                name=func.__name__,
+                description=func.__doc__ or "",
+                tags=[],
+                examples=[],
+                keywords=[],
+            )
+
+        def decorator(func):
+            return self._register(
+                func=func,
+                skill_id=skill_id_or_func,
+                name=name or skill_id_or_func,
+                description=description,
+                tags=tags or [],
+                examples=examples or [],
+                keywords=keywords or [],
+            )
+        return decorator
+
+    # ======== 普通方法注册入口 ========
+    def register(
+        self,
+        skill_id: str,
+        func: Callable,
+        *,
+        name: str | None = None,
+        description: str = "",
+        tags: list[str] | None = None,
+        examples: list[str] | None = None,
+        keywords: list[str] | None = None,
+    ) -> Callable:
+        """以普通方法的方式注册一个 skill 处理函数。
+
+        Args:
+            skill_id: skill ID
+            func: 处理函数
+            name: skill 显示名称
+            description: skill 描述
+            tags: 标签列表
+            examples: 示例列表
+            keywords: 触发关键词列表
+
+        Returns:
+            原函数（不改变其行为）
+        """
+        return self._register(
+            func=func,
+            skill_id=skill_id,
+            name=name or skill_id,
+            description=description,
+            tags=tags or [],
+            examples=examples or [],
+            keywords=keywords or [],
+        )
+
+    def _register(
+        self,
+        func: Callable,
+        skill_id: str,
+        name: str,
+        description: str,
+        tags: list[str],
+        examples: list[str],
+        keywords: list[str],
+    ):
+        """内部注册逻辑。"""
+        definition = SkillDefinition(
+            id=skill_id,
+            name=name,
+            description=description,
+            tags=tags,
+            examples=examples,
+        )
+        self._skills[skill_id] = (definition, func)
+        self._keywords[skill_id] = keywords
+        print(f"📝 Skill 已注册: [{skill_id}] {name}")
+        return func
+
+    # ======== 查询方法 ========
+    def find_handler(self, text: str) -> tuple[SkillDefinition, Callable] | None:
+        """根据输入文本的关键词匹配找到对应的 skill handler。
+
+        多个关键词同时匹配时，选择在文本中出现位置最早的那个，
+        避免"计算机"误匹配"计算"这类子串问题。
+
+        Args:
+            text: 用户输入文本
+
+        Returns:
+            (SkillDefinition, handler_func) 或 None
+        """
+        text_lower = text.lower()
+        best_match = None  # (position, skill_id)
+        for skill_id, kw_list in self._keywords.items():
+            if not kw_list:
+                continue
+            for kw in kw_list:
+                pos = text_lower.find(kw)
+                if pos != -1:
+                    if best_match is None or pos < best_match[0]:
+                        best_match = (pos, skill_id)
+        if best_match:
+            return self._skills[best_match[1]]
+        return None
+
+    def get_agent_skills(self) -> list[AgentSkill]:
+        """生成 AgentCard 所需的 skills 列表。"""
+        return [
+            AgentSkill(
+                id=defn.id,
+                name=defn.name,
+                description=defn.description,
+                tags=defn.tags,
+                examples=defn.examples,
+                input_modes=defn.input_modes,
+                output_modes=defn.output_modes,
+            )
+            for defn, _func in self._skills.values()
+        ]
+
+    @property
+    def skill_count(self) -> int:
+        """已注册的 skill 数量。"""
+        return len(self._skills)
+
+
+# ============================================================================
 # Agent Card 构建
 # ============================================================================
 
@@ -68,6 +277,7 @@ def build_agent_card(
     description: str = "An example agent demonstrating A2A protocol compliance",
     version: str = "1.0.0",
     url: str = "http://localhost:8000",
+    skills: list[AgentSkill] | None = None,
 ) -> AgentCard:
     """构建符合 A2A 协议规范的 AgentCard。
 
@@ -79,33 +289,13 @@ def build_agent_card(
         description: Agent 描述
         version: Agent 版本
         url: Agent 服务基础 URL
+        skills: 可选的 skills 列表。若为 None，则使用默认的硬编码 skills。
 
     Returns:
         完整的 AgentCard 对象
     """
-    return AgentCard(
-        name=name,
-        description=description,
-        version=version,
-        provider=AgentProvider(
-            organization="A2A Demo Organization",
-            url=url,
-        ),
-        capabilities=AgentCapabilities(
-            streaming=True,
-            push_notifications=False,
-            extended_agent_card=False,
-        ),
-        default_input_modes=["text", "text/plain"],
-        default_output_modes=["text", "text/plain"],
-        supported_interfaces=[
-            AgentInterface(
-                url=url,
-                protocol_binding="jsonrpc",
-                protocol_version="1.0",
-            ),
-        ],
-        skills=[
+    if skills is None:
+        skills = [
             AgentSkill(
                 id="calculate",
                 name="calculate",
@@ -133,7 +323,31 @@ def build_agent_card(
                 input_modes=["text", "text/plain"],
                 output_modes=["text", "text/plain"],
             ),
+        ]
+
+    return AgentCard(
+        name=name,
+        description=description,
+        version=version,
+        provider=AgentProvider(
+            organization="A2A Demo Organization",
+            url=url,
+        ),
+        capabilities=AgentCapabilities(
+            streaming=True,
+            push_notifications=False,
+            extended_agent_card=False,
+        ),
+        default_input_modes=["text", "text/plain"],
+        default_output_modes=["text", "text/plain"],
+        supported_interfaces=[
+            AgentInterface(
+                url=url,
+                protocol_binding="JSONRPC",
+                protocol_version="1.0",
+            ),
         ],
+        skills=skills,
     )
 
 
@@ -141,19 +355,40 @@ def build_agent_card(
 # Agent Executor - 核心执行逻辑
 # ============================================================================
 
+# 默认兜底响应（当没有任何 skill 匹配时使用）
+_DEFAULT_FALLBACK_RESPONSE = (
+    "您好！我是 A2A 协议兼容的 Agent。\n"
+    "我可以帮您做以下事情：\n"
+    "  - 计算数学表达式 (例如: calculate 2 + 3 * 4)\n"
+    "  - 问候语 (例如: hello)\n"
+    "  - 文本摘要 (例如: summarize: 一段文字)\n\n"
+    "请告诉我您需要什么帮助？"
+)
+
+
 class ExampleAgentExecutor(AgentExecutor):
-    """A2A Agent 执行器，包含 Agent 的核心业务逻辑。
+    """A2A Agent 执行器，基于 SkillRegistry 进行技能匹配与执行。
 
     实现 AgentExecutor 接口的 execute() 和 cancel() 方法。
     execute() 是 Agent 的主要入口，接收用户消息并产生响应。
+
+    技能匹配通过 SkillRegistry 完成，支持通过装饰器动态注册技能。
     """
+
+    def __init__(self, registry: SkillRegistry | None = None):
+        """
+        Args:
+            registry: SkillRegistry 实例。若为 None，将使用空 registry
+                      且仅返回默认兜底响应。
+        """
+        self._registry = registry or SkillRegistry()
 
     async def execute(
         self, context: RequestContext, event_queue: EventQueue
     ) -> None:
         """执行 Agent 核心逻辑。
 
-        读取 RequestContext 中的用户消息，根据消息内容匹配合适的技能，
+        读取 RequestContext 中的用户消息，通过 SkillRegistry 匹配合适的技能，
         并将响应通过 EventQueue 发布。
 
         Args:
@@ -202,7 +437,7 @@ class ExampleAgentExecutor(AgentExecutor):
             )
         )
 
-        # 技能匹配与执行
+        # 通过 SkillRegistry 进行技能匹配与执行
         response_text = self._process_skill(user_text, context_id, task_id)
 
         # 发布最终响应消息
@@ -263,14 +498,15 @@ class ExampleAgentExecutor(AgentExecutor):
         Returns:
             用户输入的文本字符串
         """
-        if context.params and context.params.message:
-            return get_message_text(context.params.message)
-        return ""
+        return context.get_user_input()
 
     def _process_skill(
         self, text: str, context_id: str | None, task_id: str | None
     ) -> str:
-        """根据输入文本匹配合适的技能并执行。
+        """通过 SkillRegistry 匹配并执行技能。
+
+        优先通过关键词匹配已注册的 skill handler；
+        若没有匹配到任何 skill，则返回默认兜底响应。
 
         Args:
             text: 用户输入文本
@@ -280,94 +516,12 @@ class ExampleAgentExecutor(AgentExecutor):
         Returns:
             技能执行结果文本
         """
-        text_lower = text.lower().strip()
+        result = self._registry.find_handler(text)
+        if result:
+            _definition, handler_func = result
+            return handler_func(text, context_id, task_id)
 
-        # 匹配计算技能
-        if any(kw in text_lower for kw in ("calculate", "计算", "calc", "compute")):
-            return self._calculate(text)
-
-        # 匹配问候技能
-        if any(kw in text_lower for kw in ("hello", "hi", "你好", "greet", "问候")):
-            return self._greet(text)
-
-        # 匹配摘要技能
-        if any(kw in text_lower for kw in ("summarize", "summary", "摘要", "总结")):
-            return self._summarize(text)
-
-        # 默认响应
-        return (
-            "您好！我是 A2A 协议兼容的 Agent。\n"
-            "我可以帮您做以下事情：\n"
-            "  - 计算数学表达式 (例如: calculate 2 + 3 * 4)\n"
-            "  - 问候语 (例如: hello)\n"
-            "  - 文本摘要 (例如: summarize: 一段文字)\n\n"
-            "请告诉我您需要什么帮助？"
-        )
-
-    def _calculate(self, text: str) -> str:
-        """安全地计算数学表达式。
-
-        Args:
-            text: 包含数学表达式的文本
-
-        Returns:
-            计算结果
-        """
-        match = re.search(r"(?:calculate|计算|calc|compute)\s+(.+)", text, re.IGNORECASE)
-        if match:
-            expression = match.group(1).strip()
-            allowed_chars = set("0123456789+-*/() .^%")
-            if not all(c in allowed_chars for c in expression):
-                return f"错误: 表达式包含不允许的字符。仅支持数字和运算符 + - * / ( ) ^ %"
-            try:
-                result = eval(expression, {"__builtins__": {}}, {})
-                return f"计算结果: {expression} = {result}"
-            except Exception as e:
-                return f"计算错误: {str(e)}"
-        return "请提供要计算的表达式，例如: calculate 2 + 3"
-
-    def _greet(self, text: str) -> str:
-        """生成问候语。
-
-        Args:
-            text: 用户输入
-
-        Returns:
-            问候语
-        """
-        return (
-            "Hello! 👋\n"
-            "我是基于 A2A 协议构建的智能 Agent。\n"
-            "我可以帮您进行计算、文本摘要等任务。\n"
-            "有什么我可以帮您的吗？"
-        )
-
-    def _summarize(self, text: str) -> str:
-        """对文本进行简单摘要。
-
-        Args:
-            text: 用户输入文本（包含 "summarize:" 前缀后的内容）
-
-        Returns:
-            摘要结果
-        """
-        match = re.search(
-            r"(?:summarize|summary|摘要|总结)\s*[:：]?\s*(.+)",
-            text,
-            re.IGNORECASE | re.DOTALL,
-        )
-        if match:
-            content = match.group(1).strip()
-            if len(content) < 50:
-                return f"摘要: 文本较短，原文即摘要:\n{content}"
-            # 简单摘要：取前100个字符 + "..."
-            summary = content[:100] + "..." if len(content) > 100 else content
-            return (
-                f"摘要 (原文本 {len(content)} 字符):\n"
-                f"{summary}\n\n"
-                f"提示: 这是简单的截断摘要，实际场景可接入 LLM 进行智能摘要。"
-            )
-        return "请提供要摘要的文本，例如: summarize: 这是一段很长的文本..."
+        return _DEFAULT_FALLBACK_RESPONSE
 
 
 # ============================================================================
@@ -384,12 +538,21 @@ class A2AServerBuilder:
     - QueueManager: 事件队列管理
     - RequestHandler: 请求处理
     - Starlette 路由: HTTP 端点
+
+    支持通过装饰器动态注册 skill::
+
+        server = A2AServerBuilder()
+
+        @server.skill("calculate", description="计算数学表达式", keywords=["calc", "计算"])
+        def calculate(text, ctx_id, task_id):
+            return "计算结果: 42"
     """
 
     def __init__(
         self,
         agent_card: AgentCard | None = None,
         agent_executor: AgentExecutor | None = None,
+        skill_registry: SkillRegistry | None = None,
         host: str = "0.0.0.0",
         port: int = 8000,
     ):
@@ -397,17 +560,28 @@ class A2AServerBuilder:
         Args:
             agent_card: AgentCard 实例
             agent_executor: AgentExecutor 实例
-            host: 服务器主机地址
+            skill_registry: SkillRegistry 实例（与 agent_executor 配合使用）
+            host: 服务器绑定地址（0.0.0.0 表示监听所有网络接口）
             port: 服务器端口
         """
-        self.agent_card = agent_card or build_agent_card()
-        self.agent_executor = agent_executor or ExampleAgentExecutor()
+        self._registry = skill_registry or SkillRegistry()
+
+        # 如果传入了 agent_card 但不指定 skills，则从 registry 获取
+        self.agent_card = agent_card or build_agent_card(
+            skills=self._registry.get_agent_skills()
+        )
+        self.agent_executor = agent_executor or ExampleAgentExecutor(
+            registry=self._registry
+        )
         self.host = host
         self.port = port
-        self.url = f"http://{host}:{port}"
+        # 对外公布的 URL：0.0.0.0 只是绑定地址，客户端需要用 localhost 或实际 IP 访问
+        advertised_host = "localhost" if host in ("0.0.0.0", "::") else host
+        self.url = f"http://{advertised_host}:{port}"
 
         # 更新 AgentCard 中的 URL
-        self.agent_card.supported_interfaces[0].url = self.url
+        if self.agent_card.supported_interfaces:
+            self.agent_card.supported_interfaces[0].url = self.url
 
         # 初始化核心组件
         self.task_store = InMemoryTaskStore()
@@ -423,8 +597,53 @@ class A2AServerBuilder:
             ),
         )
 
+    # ======== 装饰器入口：支持 @server.skill(...) ========
+    def skill(self, skill_id=None, **kwargs):
+        """装饰器：将函数注册为一个 skill 并同步更新 AgentCard。
+
+        支持两种用法::
+
+            # 用法1: 带参数的装饰器
+            @server.skill("greet", description="生成问候语", keywords=["hello", "hi"])
+            def greet(text, ctx_id, task_id):
+                return "Hello!"
+
+            # 用法2: 不带参数的装饰器（以函数名作为 skill_id）
+            @server.skill
+            def calculate(text, ctx_id, task_id):
+                return "结果"
+
+        Args:
+            skill_id: skill ID（可选，不带括号调用时传入函数）
+            **kwargs: 传递给 SkillRegistry.skill() 的其他参数
+        """
+        # 同步更新 AgentCard 中的 skills 列表
+        original_skill = self._registry.skill
+        registry = self._registry
+
+        if callable(skill_id):
+            # @server.skill 不带括号的用法
+            result = original_skill(skill_id, **kwargs)
+            self._sync_agent_card_skills()
+            return result
+
+        # @server.skill("id", ...) 带参数的用法
+        def decorator(func):
+            result = original_skill(skill_id, **kwargs)(func)
+            self._sync_agent_card_skills()
+            return result
+        return decorator
+
+    def _sync_agent_card_skills(self):
+        """从 registry 同步 skills 到 AgentCard。"""
+        new_skills = self._registry.get_agent_skills()
+        self.agent_card.ClearField("skills")
+        self.agent_card.skills.extend(new_skills)
+
     def build_app(self):
         """构建 Starlette 应用，包含所有 A2A 协议路由。
+
+        在构建前会从 SkillRegistry 同步最新的 skills 到 AgentCard。
 
         Returns:
             Starlette Application 实例
@@ -436,6 +655,9 @@ class A2AServerBuilder:
                 "A2A server requires starlette. "
                 "Install with: pip install a2a-sdk[server]"
             )
+
+        # 在构建路由前同步 skills
+        self._sync_agent_card_skills()
 
         # 创建 routes
         routes = []
@@ -618,15 +840,15 @@ class A2AClientWrapper:
         if not self._client:
             raise RuntimeError("Client not connected. Call connect() first.")
 
-        # 通过 ClientFactory 的 card_resolver 获取 AgentCard
-        from a2a.client.card_resolver import A2ACardResolver
-        resolver = A2ACardResolver()
-        card = await resolver.resolve(self.server_url)
+        card = self._client._card
         return {
             "name": card.name,
             "description": card.description,
             "version": card.version,
-            "skills": [{"id": s.id, "name": s.name, "description": s.description} for s in card.skills],
+            "skills": [
+                {"id": s.id, "name": s.name, "description": s.description}
+                for s in card.skills
+            ],
             "capabilities": {
                 "streaming": card.capabilities.streaming,
                 "push_notifications": card.capabilities.push_notifications,
@@ -753,6 +975,81 @@ def main():
             host=args.host,
             port=args.port,
         )
+
+        # ================================================================
+        # 通过装饰器动态注册 Skills
+        # 每个 skill 是一个独立的函数，通过 @builder.skill(...) 注册
+        # ================================================================
+
+        @builder.skill(
+            "calculate",
+            name="calculate",
+            description="计算数学表达式，支持加减乘除和括号",
+            tags=["math", "calculation", "arithmetic"],
+            examples=["calculate 2 + 3 * 4", "calculate (10 + 5) / 3"],
+            keywords=["calculate", "计算", "calc", "compute"],
+        )
+        def calculate(text, context_id, task_id):
+            match = re.search(
+                r"(?:calculate|计算|calc|compute)\s+(.+)", text, re.IGNORECASE
+            )
+            if match:
+                expression = match.group(1).strip()
+                allowed_chars = set("0123456789+-*/() .^%")
+                if not all(c in allowed_chars for c in expression):
+                    return (
+                        "错误: 表达式包含不允许的字符。"
+                        "仅支持数字和运算符 + - * / ( ) ^ %"
+                    )
+                try:
+                    result = eval(expression, {"__builtins__": {}}, {})
+                    return f"计算结果: {expression} = {result}"
+                except Exception as e:
+                    return f"计算错误: {str(e)}"
+            return "请提供要计算的表达式，例如: calculate 2 + 3"
+
+        @builder.skill(
+            "greet",
+            name="greet",
+            description="生成友好的问候语",
+            tags=["greeting", "social"],
+            examples=["hello", "hi there", "greet me"],
+            keywords=["hello", "hi", "你好", "greet", "问候"],
+        )
+        def greet(text, context_id, task_id):
+            return (
+                "Hello! 👋\n"
+                "我是基于 A2A 协议构建的智能 Agent。\n"
+                "我可以帮您进行计算、文本摘要等任务。\n"
+                "有什么我可以帮您的吗？"
+            )
+
+        @builder.skill(
+            "summarize",
+            name="summarize",
+            description="对输入文本进行摘要",
+            tags=["text", "nlp", "summarization"],
+            examples=["summarize: 这是一段很长的文本..."],
+            keywords=["summarize", "summary", "摘要", "总结"],
+        )
+        def summarize(text, context_id, task_id):
+            match = re.search(
+                r"(?:summarize|summary|摘要|总结)\s*[:：]?\s*(.+)",
+                text,
+                re.IGNORECASE | re.DOTALL,
+            )
+            if match:
+                content = match.group(1).strip()
+                if len(content) < 50:
+                    return f"摘要: 文本较短，原文即摘要:\n{content}"
+                summary = content[:100] + "..." if len(content) > 100 else content
+                return (
+                    f"摘要 (原文本 {len(content)} 字符):\n"
+                    f"{summary}\n\n"
+                    f"提示: 这是简单的截断摘要，实际场景可接入 LLM 进行智能摘要。"
+                )
+            return "请提供要摘要的文本，例如: summarize: 这是一段很长的文本..."
+
         builder.run()
     elif args.mode == "client":
         asyncio.run(run_client_example(args.url))

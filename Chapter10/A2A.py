@@ -290,7 +290,7 @@ def create_example_agent() -> A2AServer:
     server.add_skill("calculate", calculator_skill)
 
     # 添加问候技能
-    @server.skill
+    @server.skill("greet")
     def greeting_skill(text: str) -> str:
         """生成问候语"""
         import re
@@ -304,7 +304,7 @@ def create_example_agent() -> A2AServer:
 
 if __name__ == "__main__":
     try:
-        # 创建并运行示例 Agent
+        # 创建示例 Agent
         agent = create_example_agent()
         print(f"🚀 Starting {agent.name}...")
         print(f"📝 {agent.description}")
@@ -312,10 +312,63 @@ if __name__ == "__main__":
         print(f"📡 Version: {agent.version}")
         print(f"🛠️ Skills: {list(agent.skills.keys())}")
         print()
-        agent.run(host="0.0.0.0", port=5000)
-        client = A2AClient("http://localhost:5000")
+
+        # 在子线程中启动服务器，避免阻塞主线程
+        import threading
+        server_thread = threading.Thread(
+            target=agent.run,
+            kwargs={"host": "0.0.0.0", "port": 5001},
+            daemon=True,
+        )
+        server_thread.start()
+
+        # 等待服务器就绪
+        import time
+        time.sleep(1)
+
+        # 客户端测试
+        client = A2AClient("http://localhost:5001")
+
+        print("=" * 50)
+        print("  测试 calculate 技能")
+        print("=" * 50)
         response = client.execute_skill("calculate", "calculate 2 + 3")
-        print(response)
+        print(f"📤 请求: calculate 2 + 3")
+        print(f"📥 响应: {response}")
+
+        print()
+        print("=" * 50)
+        print("  测试 greet 技能")
+        print("=" * 50)
+        response = client.execute_skill("greet", "hello")
+        print(f"📤 请求: hello")
+        print(f"📥 响应: {response}")
+
+        print()
+        print("=" * 50)
+        print("  测试 ask 通用接口")
+        print("=" * 50)
+        response = client.ask("hello")
+        print(f"📤 请求: hello")
+        print(f"📥 响应: {response}")
+
+        print()
+        print("=" * 50)
+        print("  测试 get_info")
+        print("=" * 50)
+        info = client.get_info()
+        print(f"📥 Agent 信息: {info}")
+
+        print()
+        print("✅ 所有测试完成。按 Ctrl+C 停止服务器。")
+
+        # 保持主线程运行，等待服务器线程
+        try:
+            while True:
+                time.sleep(1)
+        except KeyboardInterrupt:
+            print("\n👋 服务器已停止。")
+
     except ImportError as e:
         print(f"❌ {e}")
         print("💡 Install the A2A SDK: pip install a2a-sdk")
